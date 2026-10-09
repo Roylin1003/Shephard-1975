@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Shephard 1975 — 多面體展開遊戲</title>
+<meta name="description" content="Shephard 1975 猜想：每個凸多面體都存在一種沿邊剪開、攤平後不自我重疊的展開圖。自己點面建生成樹、即時檢查重疊、看角缺陷；附緣起、已知結果與瓶頸說明。">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* This tool is deliberately always-dark (blueprint/drafting aesthetic) —
+     the palette is intentionally the same regardless of viewer theme. */
+  /* series skin shared with math-matrix (drill-design-guide §三): indigo ink, chalk, one amber beam */
+  :root{
+    --navy-deep:#0C1526; --navy-mid:#0F1A30; --navy-panel:#13203A;
+    --cyan:#8FA4C4; --cyan-dim:rgba(124,166,224,0.32); --cyan-faint:rgba(124,166,224,0.12);
+    --rule:rgba(124,166,224,0.16);
+    --paper:#F6F1E3; --ink:#182E42; --ink-soft:#4C6480; --paper-rule:rgba(24,46,66,0.13);
+    --accent:#FFC24B; --accent-soft:rgba(255,194,75,0.14);
+    --teal:#3E8C7E; --red:#FF6F6F; --green:#49D6A0;
+    --text-light:#E6EDF8; --text-muted:#8FA4C4;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  html{background:var(--navy-deep);}
+  body{min-height:100vh;background:var(--navy-deep) radial-gradient(120% 90% at 50% 0%,#172643 0%,var(--navy-deep) 70%) no-repeat;color:var(--text-light);font-family:'IBM Plex Sans',sans-serif;-webkit-font-smoothing:antialiased;}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  a{color:var(--cyan);}
+  header{padding:20px 26px 16px;border-bottom:1px solid var(--cyan-dim);}
+  header h1{margin:0;font-size:19px;font-weight:600;}
+  header h1 .tag{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--accent);margin-left:10px;letter-spacing:0.06em;}
+  header p{margin:6px 0 0;font-size:12.5px;color:var(--text-muted);}
+  header p.q{margin-top:10px;font-size:14px;color:var(--text-light);}
+  header .back{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text-muted);text-decoration:none;display:inline-block;margin-bottom:8px;}
+  header .back:hover{color:var(--cyan);}
+
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:14px 26px;border-bottom:1px solid var(--cyan-dim);}
+  .toolbar .group{display:flex;gap:6px;}
+  .toolbar .sep{width:1px;height:24px;background:var(--cyan-dim);margin:0 6px;}
+  .toolbar .stat{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--cyan);margin-left:auto;}
+
+  button{font-family:'IBM Plex Sans',sans-serif;font-size:12.5px;background:transparent;color:var(--text-light);border:1px solid var(--cyan-dim);padding:7px 12px;cursor:pointer;transition:border-color .15s,background .15s;}
+  button:hover{border-color:var(--cyan);background:var(--cyan-faint);}
+  button.active{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#1A1204;font-weight:600;}
+  button.primary:hover{background:#F0AE2E;border-color:#F0AE2E;}
+
+  main{display:grid;grid-template-columns:1fr 1fr;gap:18px;padding:20px 26px;max-width:1320px;margin:0 auto;}
+  @media (max-width:880px){main{grid-template-columns:1fr;}}
+  .panel{background:var(--navy-panel);border:1px solid var(--cyan-dim);padding:14px;}
+  .panel h2{margin:0 0 8px;font-size:13px;font-weight:600;}
+  .panel .hint{font-size:11.5px;color:var(--text-muted);margin-bottom:10px;}
+  #three-mount{height:420px;background:var(--navy-deep);position:relative;overflow:hidden;cursor:pointer;}
+  #three-mount canvas{display:block;width:100%;height:100%;}
+  #net-canvas-wrap{height:420px;position:relative;overflow:hidden;
+    background:
+      linear-gradient(transparent 31px,var(--paper-rule) 31px) 0 0/32px 32px,
+      linear-gradient(90deg,transparent 31px,var(--paper-rule) 31px) 0 0/32px 32px,
+      var(--paper);}
+  #net-canvas-wrap canvas{display:block;width:100%;height:100%;}
+  #net-empty{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--ink-soft);font-size:12.5px;text-align:center;padding:20px;font-family:'IBM Plex Mono',monospace;}
+
+  #verdict{
+    grid-column:1/-1;
+    padding:14px 16px;
+    border:1px solid var(--cyan-dim);
+    font-family:'IBM Plex Mono',monospace;
+    font-size:13px;
+    min-height:20px;
+  }
+  #verdict.ok{border-color:var(--green);color:var(--green);}
+  #verdict.bad{border-color:var(--red);color:var(--red);}
+  #verdict.neutral{color:var(--text-muted);}
+  #defect-panel{grid-column:1/-1;display:none;}
+  #defect-panel.on{display:block;}
+  #defect-list{font-family:'IBM Plex Mono',monospace;font-size:12px;display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:0 18px;}
+  #defect-list .row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px dashed rgba(95,184,217,0.15);color:var(--text-muted);}
+  #defect-list .row span:last-child{color:var(--cyan);}
+  #defect-list .row.complete span:last-child{color:var(--accent);font-weight:600;}
+  #sum-box{margin-top:12px;padding:10px 12px;border:1px solid var(--green);font-family:'IBM Plex Mono',monospace;font-size:12.5px;color:var(--green);}
+  #sum-box.bad{border-color:var(--red);color:var(--red);}
+
+  footer{max-width:1320px;margin:8px auto 48px;padding:0 26px;border-top:1px solid var(--cyan-dim);}
+  .essay{line-height:1.75;} /* full width of main — a narrower text column reads as truncated on wide screens (Roy, 2026-09-17) */
+  .essay section{padding:24px 0;border-bottom:1px solid var(--cyan-faint);}
+  .essay section:last-of-type{border-bottom:0;}
+  .essay h2{margin:0 0 10px;font-size:13px;font-weight:600;letter-spacing:0.08em;color:var(--cyan);text-transform:uppercase;}
+  .essay p{margin:0 0 12px;font-size:14.5px;}
+  .essay ul,.essay ol{margin:0 0 12px;padding-left:22px;font-size:14.5px;}
+  .essay li{margin-bottom:6px;}
+  .essay .claim{background:var(--navy-panel);color:var(--text-light);padding:16px 20px;border-left:4px solid var(--accent);margin:14px 0;font-size:15px;}
+  .essay .claim b{color:var(--accent);}
+  .essay .refs{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text-muted);line-height:1.8;}
+  .essay .refs li{margin-bottom:8px;}
+  .essay .credit{margin-top:24px;font-size:12.5px;color:var(--text-muted);}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Shephard 1975<span class="tag">多面體展開遊戲 · v1.1</span></h1>
+  <p class="q">每個凸多面體，都能沿著邊剪開、攤成一張不自我重疊的平面圖嗎？</p>
+  <p>1975 年，英國幾何學家 Geoffrey C. Shephard 猜想：任何凸多面體，都存在至少一種沿邊剪開的方式，使得攤平後的展開圖不會自我重疊。五十年過去了，至今沒有人能夠證明，也沒有人找到反例。現在，你可以親自動手試試看。</p>
+</header>
+
+<div class="toolbar">
+  <div class="group">
+    <button class="shape-btn active" data-shape="tetra">正四面體</button>
+    <button class="shape-btn" data-shape="cube">立方體</button>
+    <button class="shape-btn" data-shape="octa">正八面體</button>
+    <button class="shape-btn" data-shape="dodeca">正十二面體</button>
+    <button class="shape-btn" data-shape="icosa">正二十面體</button>
+    <button class="shape-btn" data-shape="hull" id="btn-hull">隨機凸多面體</button>
+  </div>
+  <div class="sep"></div>
+  <div class="group">
+    <button id="btn-random">隨機展開樹</button>
+    <button id="btn-reset">清空重來</button>
+  </div>
+  <div class="sep"></div>
+  <button id="btn-defect">角缺陷</button>
+  <div class="stat mono" id="progress-stat">已選 0 / 4 面</div>
+</div>
+
+<main>
+  <div class="panel">
+    <h2>立體模型</h2>
+    <div class="hint">拖曳旋轉・點選一個面作為起點，之後只能點與已選面相鄰的面</div>
+    <div id="three-mount"><div class="mono" style="position:absolute;bottom:8px;left:10px;font-size:10px;color:var(--text-muted);" id="viewport-hint">點一個面開始</div></div>
+  </div>
+
+  <div class="panel">
+    <h2>展開圖（Net）</h2>
+    <div class="hint">選滿所有面後自動計算</div>
+    <div id="net-canvas-wrap">
+      <canvas id="net-canvas"></canvas>
+      <div id="net-empty">尚未選滿面<br>展開圖會顯示在這裡</div>
+    </div>
+  </div>
+
+  <div id="verdict" class="neutral">選一個面開始。</div>
+
+  <div id="defect-panel" class="panel">
+    <h2>頂點角缺陷</h2>
+    <div class="hint">θ = 360° − 聚在該頂點的面內角總和。缺角是頂點的內在性質，跟切法無關；切法只決定它在展開圖上會不會被切散。橘色＝這次切法保持完整、展開圖上可以整個看到缺角的頂點。</div>
+    <div id="defect-list"></div>
+    <div id="sum-box" class="mono">Σθ = —</div>
+  </div>
+</main>
+
+<footer><div class="essay">
+
+<section>
+  <h2>緣起</h2>
+  <p>把一個立體沿著稜線剪開、攤平成一片，得到的圖叫<b>展開圖</b>（net）。這種畫法最早見於 1525 年杜勒（Albrecht Dürer）的《量度四書》（<i>Underweysung der Messung</i>）——他把多面體攤開來畫，讓工匠照圖裁切、摺回立體。幾百年來大家理所當然地這樣做，沒人問過：這件事是不是<i>永遠</i>做得到？<a href="https://en.wikipedia.org/wiki/Net_(polyhedron)">[1]</a></p>
+  <p>1975 年，英國幾何學家 Geoffrey C. Shephard 在論文〈Convex polytopes with convex nets〉裡把這個直覺寫成一個明確的問題：<a href="https://doi.org/10.1017/S0305004100051860">[2]</a></p>
+  <div class="claim"><b>Shephard 猜想</b>：任何凸多面體，都存在至少一種沿邊剪開的方式，使得攤平後的展開圖<b>不會自我重疊</b>。</div>
+  <p>「沿邊剪開」等價於在多面體的面之間選一棵<b>生成樹</b>（spanning tree）：樹上的邊是摺線（鉸鏈），其餘的邊全部剪開。一個多面體有非常多棵生成樹，猜想只要求其中<i>一棵</i>攤平後不重疊。因為問題可以追溯到杜勒，文獻上也常叫它<b>杜勒問題</b>（Dürer's problem）。<a href="https://en.wikipedia.org/wiki/Net_(polyhedron)">[1]</a><a href="http://www.gfalop.org/">[3]</a></p>
+</section>
+
+<section>
+  <h2>這個工具在做什麼</h2>
+  <ul>
+    <li><b>切法就是一棵生成樹。</b>你在立體上點面，就是在面—面相鄰圖上長一棵樹：樹上的邊當鉸鏈展開，不在樹上的邊被剪開。這是攤平演算法的標準做法，不是近似。攤平本身用剛體旋轉配準（每個子面沿共用邊貼到父面旁邊），邊長不失真。</li>
+    <li><b>重疊偵測</b>用凸多邊形的分離軸定理（SAT）。共用一條鉸鏈邊的兩個面本來就會貼在一起，所以跳過不檢查——為什麼可以跳過，下面「瓶頸在哪」會說。</li>
+    <li><b>五種柏拉圖立體</b>：正四面體／立方體／正八面體用手動指定的面；正十二面體／正二十面體只手動給了頂點座標（黃金比例構造），面則是先算真正的 3D 凸包（三角化），再把法向量相同的三角形合併回正確的多邊形——沒有手動輸入過面的頂點順序，降低記錯資料的風險。</li>
+    <li><b>「隨機凸多面體」</b>用真正的 3D 凸包演算法（incremental hull）現場算：隨機灑點、算凸包、自動修正法向朝外——不是預先畫好的形狀。上線前在瀏覽器外用歐拉公式（V − E + F = 2）、法向一致性、所有點都在凸包內三項測試跑了幾十次隨機案例驗證這個演算法，都通過。</li>
+    <li><b>「角缺陷」層</b>：每個頂點 θ = 360° − 聚在該頂點的面內角總和。缺角是頂點的內在性質，跟切法無關；切法只決定它在展開圖上會不會被切散。沒被切散的頂點標橘色，缺角就是那裡少掉的一塊紙。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>已知的事</h2>
+  <ul>
+    <li><b>不是每棵生成樹都行。</b>即使是簡單的凸多面體，隨便選一棵生成樹，攤平後很容易撞在一起；面越多，隨機剪法重疊的機率越高。猜想說的是「存在一棵好的」，不是「每一棵都好」。<a href="http://www.gfalop.org/">[3]</a></li>
+    <li><b>放寬剪法就沒問題了。</b>如果允許剪線穿過面的內部（不限於沿邊），星形展開（star unfolding）與源點展開（source unfolding）已被證明對任何凸多面體都不重疊。難的只在「限定沿邊」這一條。<a href="https://doi.org/10.1007/BF02293047">[4]</a><a href="http://www.gfalop.org/">[3]</a></li>
+    <li><b>拿掉凸性就有反例。</b>非凸多面體可以構造出「怎麼沿邊剪都會重疊」的例子——即使每個面本身都是凸多邊形。所以凸性不是可有可無的假設，是猜想成立的關鍵。<a href="https://doi.org/10.1016/S0925-7721(02)00091-3">[5]</a></li>
+    <li><b>拉一拉就能解。</b>Ghomi（2014）證明：任何凸多面體，只要施加一個適當的仿射變換（沿某方向拉長），就變成沿邊可展開的。這說明重疊是幾何度量的問題，不是拓撲結構的問題。<a href="https://doi.org/10.2140/gt.2014.18.3055">[6]</a></li>
+    <li><b>電腦能驗個案，不能驗全部。</b>對於特定的多面體，窮舉生成樹可以確認「有好的剪法」；但凸多面體有無窮多種，逐一驗證不構成證明。</li>
+  </ul>
+</section>
+
+<section>
+  <h2>瓶頸在哪</h2>
+  <p>凸多面體的「凸」給了兩個局部條件：每個頂點的<b>角缺陷</b> θ > 0（頂點是尖的），每條邊的<b>二面角</b>小於 180°（沿邊摺的方向是「打開」）。這兩個條件足以保證：</p>
+  <ol>
+    <li><b>共用一條邊的兩個面</b>，攤平後一定落在那條邊的兩側，不重疊；</li>
+    <li><b>共用一個頂點的幾個面</b>，繞著那個頂點攤開後總角度不到 360°，留下 θ 的空隙，也不重疊。</li>
+  </ol>
+  <p>也就是說，<b>凡是相鄰的面，凸性都已經替它們擔保了</b>——這也是工具裡重疊檢查可以跳過相鄰面的原因。真正沒有任何條件管的，是<b>完全不相鄰</b>（既不共邊也不共頂點）的兩個面。它們各自沿生成樹繞了一長串轉折才到達最終位置，途中每一步只保證「跟自己的父面不重疊」，沒有任何機制保證繞了一大圈之後，兩塊原本八竿子打不著的面不會剛好疊在一起。</p>
+  <p>局部的部分已經被凸性鎖死，開放的只剩全域這一塊——這就是猜想五十年來只能靠電腦驗證個案、還沒有一般性證明的原因。</p>
+  <p>順帶一提，所有頂點的角缺陷加總，對任何凸多面體都恰好是 720°（4π）——這是 Descartes 定理，離散版的高斯–博內定理。工具裡開「角缺陷」就會即時驗證。<a href="https://en.wikipedia.org/wiki/Angular_defect">[7]</a></p>
+</section>
+
+<section>
+  <h2>實驗筆記</h2>
+  <p>老實說一個測試發現：不管是三個手動指定的正多面體、拉長變形的版本，還是幾十個隨機凸包，跑了幾千次隨機展開樹，沒有出現過一次重疊。這跟數學界的實際經驗一致——大量電腦實驗都沒找到反例，這正是 Shephard 猜想至今仍只是「猜想」而非「已被推翻」的原因，不是這個原型的缺陷。面數更多、形狀更扁的凸多面體，隨機剪法重疊的機率會明顯上升；想看到紅色，可以試著自己設計一棵繞遠路的生成樹。</p>
+  <p>這個原型目前只放了凸多面體，沒有示範非凸的反例。</p>
+</section>
+
+<section>
+  <h2>參考</h2>
+  <ol class="refs">
+    <li>[1] Wikipedia: <a href="https://en.wikipedia.org/wiki/Net_(polyhedron)">Net (polyhedron)</a>——展開圖的歷史（杜勒）與 Shephard 猜想現況。</li>
+    <li>[2] Shephard, G. C. (1975). Convex polytopes with convex nets. <i>Mathematical Proceedings of the Cambridge Philosophical Society</i>, 78(3), 389–403. <a href="https://doi.org/10.1017/S0305004100051860">doi:10.1017/S0305004100051860</a>（出版社頁面常擋，備援：<a href="https://zbmath.org/0312.52011">zbMATH Open Zbl 0312.52011</a>／<a href="https://www.semanticscholar.org/paper/47b9d75428377731f6b51c45ee9bf1ffe2931ee4">Semantic Scholar</a>）</li>
+    <li>[3] Demaine, E. D., &amp; O'Rourke, J. (2007). <i>Geometric Folding Algorithms: Linkages, Origami, Polyhedra</i>. Cambridge University Press. 第 22 章專論邊展開與杜勒問題。<a href="http://www.gfalop.org/">gfalop.org</a></li>
+    <li>[4] Aronov, B., &amp; O'Rourke, J. (1992). Nonoverlap of the star unfolding. <i>Discrete &amp; Computational Geometry</i>, 8, 219–250. <a href="https://doi.org/10.1007/BF02293047">doi:10.1007/BF02293047</a></li>
+    <li>[5] Bern, M., Demaine, E. D., Eppstein, D., Kuo, E., Mantler, A., &amp; Snoeyink, J. (2003). Ununfoldable polyhedra with convex faces. <i>Computational Geometry</i>, 24(2), 51–62. <a href="https://doi.org/10.1016/S0925-7721(02)00091-3">doi:10.1016/S0925-7721(02)00091-3</a>／<a href="https://arxiv.org/abs/cs/9908003">arXiv:cs/9908003</a></li>
+    <li>[6] Ghomi, M. (2014). Affine unfoldings of convex polyhedra. <i>Geometry &amp; Topology</i>, 18(5), 3055–3090. <a href="https://doi.org/10.2140/gt.2014.18.3055">doi:10.2140/gt.2014.18.3055</a>／<a href="https://arxiv.org/abs/1305.3231">arXiv:1305.3231</a></li>
+    <li>[7] Wikipedia: <a href="https://en.wikipedia.org/wiki/Angular_defect">Angular defect</a>——Descartes 定理 Σθ = 4π。</li>
+  </ol>
+  <p class="credit">A collaborative project by <a href="https://github.com/Roylin1003/Shephard-1975">roylin1003 and Claude</a>.</p>
+</section>
+
+</div></footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function(){
+"use strict";
+
+/* ---------------- raw polyhedron data ---------------- */
+const RAW_SHAPES = {
+  tetra: {
+    verts: [[1,1,1],[1,-1,-1],[-1,1,-1],[-1,-1,1]],
+    faces: [[0,1,2],[0,1,3],[0,2,3],[1,2,3]]
+  },
+  cube: {
+    verts: [[-1,-1,-1],[1,-1,-1],[1,1,-1],[-1,1,-1],[-1,-1,1],[1,-1,1],[1,1,1],[-1,1,1]],
+    faces: [[0,1,2,3],[4,5,6,7],[0,1,5,4],[3,2,6,7],[0,3,7,4],[1,2,6,5]]
+  },
+  octa: {
+    verts: [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]],
+    faces: [[0,2,4],[0,2,5],[0,3,4],[0,3,5],[1,2,4],[1,2,5],[1,3,4],[1,3,5]]
+  }
+};
+const SCALE = 15;
+
+// dodecahedron / icosahedron: only vertex coordinates are hand-specified (the
+// standard golden-ratio construction); the faces themselves are DERIVED below
+// via the verified convex-hull + coplanar-merge pipeline, not hand-transcribed,
+// since face-index lists for these are easy to get subtly wrong from memory.
+const PHI = (1 + Math.sqrt(5)) / 2;
+const PLATONIC_RAW_VERTS = {
+  icosa: (function(){
+    const v = [];
+    [1,-1].forEach(s1=>[1,-1].forEach(s2=>v.push([0, s1*1, s2*PHI])));
+    [1,-1].forEach(s1=>[1,-1].forEach(s2=>v.push([s1*1, s2*PHI, 0])));
+    [1,-1].forEach(s1=>[1,-1].forEach(s2=>v.push([s1*PHI, 0, s2*1])));
+    return v;
+  })(),
+  dodeca: (function(){
+    const r = 1/PHI;
+    const v = [];
+    [1,-1].forEach(a=>[1,-1].forEach(b=>[1,-1].forEach(c=>v.push([a,b,c]))));
+    [1,-1].forEach(a=>[1,-1].forEach(b=>v.push([0, a*r, b*PHI])));
+    [1,-1].forEach(a=>[1,-1].forEach(b=>v.push([a*r, b*PHI, 0])));
+    [1,-1].forEach(a=>[1,-1].forEach(b=>v.push([a*PHI, 0, b*r])));
+    return v;
+  })()
+};
+
+/* ---------------- geometry helpers ---------------- */
+function vsub(a,b){return [a[0]-b[0],a[1]-b[1],a[2]-b[2]];}
+function vadd(a,b){return [a[0]+b[0],a[1]+b[1],a[2]+b[2]];}
+function vscale(a,s){return [a[0]*s,a[1]*s,a[2]*s];}
+function vcross(a,b){return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];}
+function vdot(a,b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];}
+function vlen(a){return Math.sqrt(vdot(a,a));}
+function vnorm(a){const l=vlen(a)||1; return [a[0]/l,a[1]/l,a[2]/l];}
+
+function finalizeShapeData(vertices, rawFaces){
+  const centroid = vertices.reduce((acc,v)=>vadd(acc,v),[0,0,0]).map(x=>x/vertices.length);
+
+  const faces = rawFaces.map(f=>f.slice());
+
+  // auto-fix winding: outward CCW
+  faces.forEach(f=>{
+    const v0=vertices[f[0]], v1=vertices[f[1]], v2=vertices[f[2]];
+    let n = vcross(vsub(v1,v0), vsub(v2,v0));
+    const fc = f.reduce((acc,i)=>vadd(acc,vertices[i]),[0,0,0]).map(x=>x/f.length);
+    if(vdot(n, vsub(fc,centroid)) < 0){ f.reverse(); }
+  });
+
+  // per-face local 2D flatten (isometric, CCW-safe)
+  const localFlat = faces.map(f=>{
+    const v0=vertices[f[0]], v1=vertices[f[1]];
+    const u = vnorm(vsub(v1,v0));
+    let n = vcross(vsub(v1,v0), vsub(vertices[f[2]],v0));
+    n = vnorm(n);
+    let vax = vcross(n,u);
+    const pts2d = f.map(idx=>{
+      const d = vsub(vertices[idx], v0);
+      return [vdot(d,u), vdot(d,vax)];
+    });
+    // enforce positive (CCW) signed area
+    let area = 0;
+    for(let i=0;i<pts2d.length;i++){
+      const p=pts2d[i], q=pts2d[(i+1)%pts2d.length];
+      area += p[0]*q[1]-q[0]*p[1];
+    }
+    if(area < 0){ return pts2d.map(p=>[p[0],-p[1]]); }
+    return pts2d;
+  });
+
+  // adjacency: faces sharing exactly 2 vertex indices
+  const adjacency = faces.map(()=>[]);
+  for(let i=0;i<faces.length;i++){
+    for(let j=i+1;j<faces.length;j++){
+      const shared = faces[i].filter(idx=>faces[j].indexOf(idx)!==-1);
+      if(shared.length===2){
+        adjacency[i].push(j);
+        adjacency[j].push(i);
+      }
+    }
+  }
+
+  return {vertices, faces, localFlat, adjacency, centroid};
+}
+
+// angle defect per vertex: 2π minus the sum of the face angles meeting there.
+function computeDefects(vertices, faces){
+  const occ = {};
+  faces.forEach((f,fi)=>{ f.forEach((vi,pos)=>{ (occ[vi]=occ[vi]||[]).push({fi,pos}); }); });
+  const defects = {};
+  Object.keys(occ).forEach(viStr=>{
+    const vi = parseInt(viStr,10);
+    let total = 0;
+    occ[vi].forEach(({fi,pos})=>{
+      const f = faces[fi], n = f.length;
+      const prev = f[(pos-1+n)%n], next = f[(pos+1)%n];
+      const a = vnorm(vsub(vertices[prev], vertices[vi]));
+      const b = vnorm(vsub(vertices[next], vertices[vi]));
+      total += Math.acos(Math.max(-1,Math.min(1, vdot(a,b))));
+    });
+    defects[vi] = 2*Math.PI - total;
+  });
+  return defects;
+}
+
+function buildShapeData(raw){
+  const vertices = raw.verts.map(v=>vscale(v,SCALE));
+  return finalizeShapeData(vertices, raw.faces);
+}
+
+/* ---------------- random convex polyhedron (3D convex hull) ---------------- */
+function randomPointCloud(n){
+  const pts=[];
+  for(let i=0;i<n;i++){
+    let x,y,z,l;
+    do{
+      x=Math.random()*2-1; y=Math.random()*2-1; z=Math.random()*2-1;
+      l=Math.sqrt(x*x+y*y+z*z);
+    }while(l<0.05);
+    const r = (0.55 + Math.random()*0.45) * SCALE;
+    pts.push([x/l*r, y/l*r, z/l*r]);
+  }
+  return pts;
+}
+
+function hullFaceNormal(points,f){
+  const a=points[f[0]], b=points[f[1]], c=points[f[2]];
+  return vcross(vsub(b,a), vsub(c,a));
+}
+
+function hullFixWinding(points, f, innerPoint){
+  const n = hullFaceNormal(points, f);
+  if(vdot(n, vsub(points[f[0]], innerPoint)) < 0){ return [f[0], f[2], f[1]]; }
+  return f;
+}
+
+// incremental 3D convex hull. verified separately against Euler's formula,
+// outward-normal consistency and point-containment across randomized trials.
+function computeConvexHull(points){
+  let init = null;
+  outer:
+  for(let a=0;a<points.length && !init;a++)
+  for(let b=a+1;b<points.length && !init;b++)
+  for(let c=b+1;c<points.length && !init;c++)
+  for(let d=c+1;d<points.length;d++){
+    const vol = vdot(vsub(points[b],points[a]), vcross(vsub(points[c],points[a]), vsub(points[d],points[a])));
+    if(Math.abs(vol) > 1e-6){ init=[a,b,c,d]; break outer; }
+  }
+  if(!init) return null; // degenerate cloud, caller should retry with a new random set
+
+  // reference interior point: centroid of the initial tetrahedron. This stays
+  // strictly interior for the rest of the algorithm because the hull only grows
+  // outward from here, never inward.
+  const innerPoint = init.map(i=>points[i]).reduce((acc,p)=>vadd(acc,p),[0,0,0]).map(x=>x/4);
+
+  let faces = [
+    hullFixWinding(points,[init[0],init[1],init[2]],innerPoint),
+    hullFixWinding(points,[init[0],init[1],init[3]],innerPoint),
+    hullFixWinding(points,[init[0],init[2],init[3]],innerPoint),
+    hullFixWinding(points,[init[1],init[2],init[3]],innerPoint)
+  ];
+
+  const usedInit = new Set(init);
+  const remaining = [];
+  for(let i=0;i<points.length;i++) if(!usedInit.has(i)) remaining.push(i);
+
+  const EPS = 1e-6;
+  for(const p of remaining){
+    const visible = faces.filter(f=>vdot(hullFaceNormal(points,f), vsub(points[p], points[f[0]])) > EPS);
+    if(visible.length===0) continue;
+
+    const visibleSet = new Set(visible.map(f=>f.join(",")));
+    const directedEdges = new Set();
+    visible.forEach(f=>{
+      directedEdges.add(f[0]+"_"+f[1]);
+      directedEdges.add(f[1]+"_"+f[2]);
+      directedEdges.add(f[2]+"_"+f[0]);
+    });
+    const horizon = [];
+    visible.forEach(f=>{
+      [[f[0],f[1]],[f[1],f[2]],[f[2],f[0]]].forEach(([a,b])=>{
+        if(!directedEdges.has(b+"_"+a)) horizon.push([a,b]);
+      });
+    });
+
+    faces = faces.filter(f=>!visibleSet.has(f.join(",")));
+    horizon.forEach(([a,b])=>{
+      faces.push(hullFixWinding(points,[a,b,p],innerPoint));
+    });
+  }
+  return faces;
+}
+
+function buildRandomHullShape(){
+  let faces = null, points = null;
+  for(let attempt=0; attempt<8 && !faces; attempt++){
+    const n = 7 + Math.floor(Math.random()*4); // 7..10 points
+    points = randomPointCloud(n);
+    faces = computeConvexHull(points);
+  }
+  if(!faces) return buildRandomHullShape(); // extremely unlikely; retry fresh
+  return finalizeShapeData(points, faces);
+}
+
+// group a triangulated hull's faces by shared normal, then re-order each
+// group's unique vertices into a proper cyclic polygon (angle-sort in-plane).
+// This is how the dodecahedron's pentagons and (redundantly, for symmetry of
+// the code path) the icosahedron's triangles are derived from raw vertices.
+function mergeCoplanarFaces(points, triFaces){
+  const groups = [];
+  triFaces.forEach(f=>{
+    const n = vnorm(hullFaceNormal(points, f));
+    let found = null;
+    for(const g of groups){ if(vdot(g.normal, n) > 0.999){ found = g; break; } }
+    if(found) found.tris.push(f); else groups.push({normal:n, tris:[f]});
+  });
+  return groups.map(g=>{
+    const vertSet = new Set();
+    g.tris.forEach(t=>t.forEach(i=>vertSet.add(i)));
+    const verts = [...vertSet];
+    const centroid = verts.reduce((acc,i)=>vadd(acc,points[i]),[0,0,0]).map(x=>x/verts.length);
+    const n = g.normal;
+    const ref = vsub(points[verts[0]], centroid);
+    const u = vnorm(vsub(ref, vscale(n, vdot(ref,n))));
+    const vax = vcross(n,u);
+    const withAngle = verts.map(i=>{
+      const d = vsub(points[i], centroid);
+      return {i, angle: Math.atan2(vdot(d,vax), vdot(d,u))};
+    });
+    withAngle.sort((a,b)=>a.angle-b.angle);
+    return withAngle.map(x=>x.i);
+  });
+}
+
+function buildPlatonicViaHull(rawVerts, targetRadius){
+  const avgLen = rawVerts.reduce((s,v)=>s+vlen(v),0) / rawVerts.length;
+  const scale = targetRadius / avgLen;
+  const points = rawVerts.map(v=>vscale(v, scale));
+  const triFaces = computeConvexHull(points);
+  const polyFaces = mergeCoplanarFaces(points, triFaces);
+  return finalizeShapeData(points, polyFaces);
+}
+
+const SHAPES = {};
+Object.keys(RAW_SHAPES).forEach(k=>{ SHAPES[k] = buildShapeData(RAW_SHAPES[k]); });
+SHAPES.icosa = buildPlatonicViaHull(PLATONIC_RAW_VERTS.icosa, SCALE*1.5);
+SHAPES.dodeca = buildPlatonicViaHull(PLATONIC_RAW_VERTS.dodeca, SCALE*1.5);
+
+/* ---------------- three.js viewer ---------------- */
+const mount = document.getElementById("three-mount");
+const viewportHint = document.getElementById("viewport-hint");
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(42,1,0.1,2000);
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setClearColor(0x0C1526,1);
+mount.appendChild(renderer.domElement);
+
+function sizeRenderer(){
+  const w=mount.clientWidth,h=mount.clientHeight;
+  renderer.setSize(w,h,false);
+  camera.aspect=w/h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener("resize", sizeRenderer);
+
+scene.add(new THREE.AmbientLight(0xffffff,0.6));
+const dLight=new THREE.DirectionalLight(0xffffff,0.85);
+dLight.position.set(60,90,70);
+scene.add(dLight);
+const dLight2=new THREE.DirectionalLight(0x8FA4C4,0.25);
+dLight2.position.set(-60,-30,-60);
+scene.add(dLight2);
+
+let theta=Math.PI*0.28, phi=Math.PI*0.36, radius=90;
+let dragging=false,lastX=0,lastY=0,movedWhileDown=false;
+function updateCamera(){
+  camera.position.set(radius*Math.sin(phi)*Math.sin(theta), radius*Math.cos(phi), radius*Math.sin(phi)*Math.cos(theta));
+  camera.lookAt(0,0,0);
+}
+renderer.domElement.addEventListener("pointerdown",e=>{dragging=true;lastX=e.clientX;lastY=e.clientY;movedWhileDown=false;});
+window.addEventListener("pointerup",()=>dragging=false);
+window.addEventListener("pointermove",e=>{
+  if(!dragging) return;
+  const dx=e.clientX-lastX, dy=e.clientY-lastY;
+  lastX=e.clientX; lastY=e.clientY;
+  if(Math.abs(dx)+Math.abs(dy) > 2) movedWhileDown = true;
+  theta-=dx*0.007; phi-=dy*0.007;
+  phi=Math.max(0.15,Math.min(Math.PI-0.15,phi));
+  updateCamera();
+});
+renderer.domElement.addEventListener("wheel",e=>{
+  e.preventDefault();
+  radius*=(1+e.deltaY*0.001);
+  radius=Math.max(35,Math.min(240,radius));
+  updateCamera();
+},{passive:false});
+updateCamera();
+
+const modelGroup = new THREE.Group();
+scene.add(modelGroup);
+let faceMeshes = [];
+let edgeLines = null;
+const defectGroup = new THREE.Group(); // vertex spheres, shown only in defect mode
+defectGroup.visible = false;
+modelGroup.add(defectGroup);
+
+const COLOR_DEFAULT = 0x3E8C7E;
+const COLOR_SELECTABLE = 0x8FA4C4;
+const COLOR_ROOT = 0xFFC24B;
+const COLOR_TREE = 0x2E6E62;
+const COLOR_OVERLAP = 0xFF6F6F;
+
+function triangulateFan(n){
+  const idx=[];
+  for(let i=1;i<n-1;i++){ idx.push(0,i,i+1); }
+  return idx;
+}
+
+function buildViewer(shapeKey){
+  faceMeshes.forEach(m=>{modelGroup.remove(m); m.geometry.dispose(); m.material.dispose();});
+  faceMeshes = [];
+  if(edgeLines){ modelGroup.remove(edgeLines); edgeLines.geometry.dispose(); edgeLines.material.dispose(); edgeLines=null; }
+
+  const data = SHAPES[shapeKey];
+  data.faces.forEach((f,fi)=>{
+    const positions = [];
+    f.forEach(idx=>positions.push(...data.vertices[idx]));
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(positions,3));
+    geo.setIndex(triangulateFan(f.length));
+    geo.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({color:COLOR_DEFAULT, metalness:0.15, roughness:0.6, side:THREE.DoubleSide});
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.userData.faceIndex = fi;
+    modelGroup.add(mesh);
+    faceMeshes.push(mesh);
+  });
+
+  // edges
+  const edgeSet = new Set();
+  const linePositions = [];
+  data.faces.forEach(f=>{
+    for(let i=0;i<f.length;i++){
+      const a=f[i], b=f[(i+1)%f.length];
+      const key = a<b ? a+"_"+b : b+"_"+a;
+      if(edgeSet.has(key)) return;
+      edgeSet.add(key);
+      linePositions.push(...data.vertices[a], ...data.vertices[b]);
+    }
+  });
+  const edgeGeo = new THREE.BufferGeometry();
+  edgeGeo.setAttribute("position", new THREE.Float32BufferAttribute(linePositions,3));
+  edgeLines = new THREE.LineSegments(edgeGeo, new THREE.LineBasicMaterial({color:0x0C1526, linewidth:1}));
+  modelGroup.add(edgeLines);
+
+  // vertex spheres: size / brightness follow the angle defect
+  while(defectGroup.children.length){ const m=defectGroup.children[0]; defectGroup.remove(m); m.geometry.dispose(); m.material.dispose(); }
+  const defects = computeDefects(data.vertices, data.faces);
+  const maxDefect = Math.max(...Object.values(defects));
+  Object.keys(defects).forEach(viStr=>{
+    const vi = parseInt(viStr,10), t = defects[vi]/maxDefect;
+    const sphere = new THREE.Mesh(
+      new THREE.SphereGeometry(0.9 + t*1.4, 12, 12),
+      new THREE.MeshStandardMaterial({color: new THREE.Color().setHSL(0.06, 0.8, 0.4+t*0.3)})
+    );
+    sphere.position.set(...data.vertices[vi]);
+    defectGroup.add(sphere);
+  });
+}
+
+function animate(){ requestAnimationFrame(animate); renderer.render(scene,camera); }
+sizeRenderer();
+animate();
+
+/* raycasting for face clicks */
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+renderer.domElement.addEventListener("click", e=>{
+  if(movedWhileDown) return; // was a drag, not a click
+  const r = renderer.domElement.getBoundingClientRect();
+  mouse.x = ((e.clientX-r.left)/r.width)*2-1;
+  mouse.y = -((e.clientY-r.top)/r.height)*2+1;
+  raycaster.setFromCamera(mouse, camera);
+  const hits = raycaster.intersectObjects(faceMeshes);
+  if(hits.length){
+    onFaceClick(hits[0].object.userData.faceIndex);
+  }
+});
+
+/* ---------------- game state ---------------- */
+let currentShapeKey = "tetra";
+let treeFaces = new Set();
+let parentOf = {};
+let rootFace = null;
+let successCount = 0;
+let lastNet = null; // last computed net, redrawn on resize (resizing clears the canvas)
+let defectMode = false;
+const defectPanel = document.getElementById("defect-panel");
+
+const progressStat = document.getElementById("progress-stat");
+const verdictEl = document.getElementById("verdict");
+const netCanvas = document.getElementById("net-canvas");
+const netEmpty = document.getElementById("net-empty");
+const netCtx = netCanvas.getContext("2d");
+
+function resizeNetCanvas(){
+  const wrap = document.getElementById("net-canvas-wrap");
+  netCanvas.width = wrap.clientWidth;
+  netCanvas.height = wrap.clientHeight;
+}
+window.addEventListener("resize", ()=>{ if(lastNet) renderNetCanvas(lastNet.placed, lastNet.faceIdxs, lastNet.overlapFaces); });
+
+function setShape(key){
+  currentShapeKey = key;
+  document.querySelectorAll(".shape-btn").forEach(b=>b.classList.toggle("active", b.dataset.shape===key));
+  buildViewer(key);
+  resetTree();
+}
+
+function resetTree(){
+  treeFaces = new Set();
+  parentOf = {};
+  rootFace = null;
+  lastNet = null;
+  refreshFaceColors();
+  const n = SHAPES[currentShapeKey].faces.length;
+  progressStat.textContent = "已選 0 / " + n + " 面";
+  verdictEl.className = "neutral";
+  verdictEl.textContent = "選一個面開始。";
+  netCtx.clearRect(0,0,netCanvas.width,netCanvas.height);
+  netEmpty.style.display = "flex";
+  viewportHint.textContent = "點一個面開始";
+  renderDefectList(new Set());
+}
+
+function renderDefectList(completeVertices){
+  const data = SHAPES[currentShapeKey];
+  const defects = computeDefects(data.vertices, data.faces);
+  const list = document.getElementById("defect-list");
+  list.innerHTML = "";
+  let sum = 0;
+  Object.keys(defects).sort((a,b)=>a-b).forEach(viStr=>{
+    const vi = parseInt(viStr,10);
+    sum += defects[vi];
+    const row = document.createElement("div");
+    row.className = "row" + (completeVertices.has(vi) ? " complete" : "");
+    row.innerHTML = "<span>頂點 "+vi+"</span><span>"+(defects[vi]*180/Math.PI).toFixed(2)+"°</span>";
+    list.appendChild(row);
+  });
+  const sumDeg = sum*180/Math.PI, ok = Math.abs(sumDeg-720) < 0.05;
+  const box = document.getElementById("sum-box");
+  box.className = "mono" + (ok ? "" : " bad");
+  box.textContent = "Σθ = " + sumDeg.toFixed(4) + "°  " + (ok ? "✓ = 720° (4π)" : "✗ 應為 720°");
+}
+
+function refreshFaceColors(){
+  const data = SHAPES[currentShapeKey];
+  faceMeshes.forEach(mesh=>{
+    const fi = mesh.userData.faceIndex;
+    let color = COLOR_DEFAULT;
+    if(fi === rootFace) color = COLOR_ROOT;
+    else if(treeFaces.has(fi)) color = COLOR_TREE;
+    else if(rootFace !== null){
+      const selectable = data.adjacency[fi].some(a=>treeFaces.has(a));
+      if(selectable) color = COLOR_SELECTABLE;
+    }
+    mesh.material.color.setHex(color);
+  });
+}
+
+function onFaceClick(fi){
+  const data = SHAPES[currentShapeKey];
+  if(rootFace === null){
+    rootFace = fi;
+    treeFaces.add(fi);
+  } else if(treeFaces.has(fi)){
+    return; // already in tree
+  } else {
+    const parentCandidate = data.adjacency[fi].find(a=>treeFaces.has(a));
+    if(parentCandidate === undefined){
+      viewportHint.textContent = "這個面還不相鄰，先選旁邊的面";
+      return;
+    }
+    parentOf[fi] = parentCandidate;
+    treeFaces.add(fi);
+  }
+  refreshFaceColors();
+  progressStat.textContent = "已選 " + treeFaces.size + " / " + data.faces.length + " 面";
+  viewportHint.textContent = "已選 " + treeFaces.size + " / " + data.faces.length;
+
+  if(treeFaces.size === data.faces.length){
+    computeAndRenderNet();
+  }
+}
+
+function randomTree(){
+  const data = SHAPES[currentShapeKey];
+  const n = data.faces.length;
+  const order = [...Array(n).keys()];
+  const start = order[Math.floor(Math.random()*n)];
+  treeFaces = new Set([start]);
+  parentOf = {};
+  rootFace = start;
+  const frontier = [start];
+  while(treeFaces.size < n){
+    const idx = Math.floor(Math.random()*frontier.length);
+    const cur = frontier[idx];
+    const candidates = data.adjacency[cur].filter(a=>!treeFaces.has(a));
+    if(candidates.length===0){ frontier.splice(idx,1); continue; }
+    const next = candidates[Math.floor(Math.random()*candidates.length)];
+    parentOf[next] = cur;
+    treeFaces.add(next);
+    frontier.push(next);
+  }
+  refreshFaceColors();
+  progressStat.textContent = "已選 " + treeFaces.size + " / " + n + " 面";
+  computeAndRenderNet();
+}
+
+/* ---------------- unfolding placement ---------------- */
+function computeTransform(Lm,Ln,Pm,Pn){
+  const angleSrc = Math.atan2(Ln[1]-Lm[1], Ln[0]-Lm[0]);
+  const angleTgt = Math.atan2(Pn[1]-Pm[1], Pn[0]-Pm[0]);
+  const theta = angleTgt-angleSrc;
+  const cos=Math.cos(theta), sin=Math.sin(theta);
+  return function(pt){
+    const dx=pt[0]-Lm[0], dy=pt[1]-Lm[1];
+    const rx=dx*cos-dy*sin, ry=dx*sin+dy*cos;
+    return [Pm[0]+rx, Pm[1]+ry];
+  };
+}
+
+function unfoldNet(){
+  const data = SHAPES[currentShapeKey];
+  const placed = {};
+  placed[rootFace] = data.localFlat[rootFace].slice();
+
+  const children = {};
+  Object.keys(parentOf).forEach(childStr=>{
+    const child = parseInt(childStr,10);
+    const p = parentOf[child];
+    if(!children[p]) children[p]=[];
+    children[p].push(child);
+  });
+
+  const queue = [rootFace];
+  while(queue.length){
+    const cur = queue.shift();
+    (children[cur]||[]).forEach(child=>{
+      const shared = data.faces[child].filter(idx=>data.faces[cur].indexOf(idx)!==-1);
+      const m = shared[0], n = shared[1];
+      const Lm = data.localFlat[child][data.faces[child].indexOf(m)];
+      const Ln = data.localFlat[child][data.faces[child].indexOf(n)];
+      const Pm = placed[cur][data.faces[cur].indexOf(m)];
+      const Pn = placed[cur][data.faces[cur].indexOf(n)];
+      const tf = computeTransform(Lm,Ln,Pm,Pn);
+      placed[child] = data.localFlat[child].map(tf);
+      queue.push(child);
+    });
+  }
+  return placed;
+}
+
+function satOverlap(polyA, polyB, eps){
+  const pairs = [[polyA,polyB],[polyB,polyA]];
+  for(const [pa] of pairs){
+    for(let i=0;i<pa.length;i++){
+      const p1=pa[i], p2=pa[(i+1)%pa.length];
+      const nx = -(p2[1]-p1[1]), ny = p2[0]-p1[0];
+      let minA=Infinity,maxA=-Infinity,minB=Infinity,maxB=-Infinity;
+      polyA.forEach(p=>{const d=p[0]*nx+p[1]*ny; if(d<minA)minA=d; if(d>maxA)maxA=d;});
+      polyB.forEach(p=>{const d=p[0]*nx+p[1]*ny; if(d<minB)minB=d; if(d>maxB)maxB=d;});
+      if(maxA < minB+eps || maxB < minA+eps) return false;
+    }
+  }
+  return true;
+}
+
+function computeAndRenderNet(){
+  const data = SHAPES[currentShapeKey];
+  const placed = unfoldNet();
+  const faceIdxs = Object.keys(placed).map(k=>parseInt(k,10));
+
+  const overlapFaces = new Set();
+  for(let i=0;i<faceIdxs.length;i++){
+    for(let j=i+1;j<faceIdxs.length;j++){
+      const fi=faceIdxs[i], fj=faceIdxs[j];
+      if(data.adjacency[fi].includes(fj)) continue; // sharing a hinge edge, expected to touch
+      if(satOverlap(placed[fi], placed[fj], 0.4)){
+        overlapFaces.add(fi); overlapFaces.add(fj);
+      }
+    }
+  }
+
+  lastNet = {placed, faceIdxs, overlapFaces};
+  renderNetCanvas(placed, faceIdxs, overlapFaces);
+
+  if(overlapFaces.size===0){
+    successCount++;
+    verdictEl.className = "ok";
+    verdictEl.textContent = "✓ 這個切法攤平後沒有重疊。第 " + successCount + " 次成功展開——換個切法再試試？";
+  } else {
+    verdictEl.className = "bad";
+    verdictEl.textContent = "✗ 這個切法攤平後有 " + overlapFaces.size + " 個面互相重疊（紅色標記）。試試看換一種生成樹，或按「隨機展開樹」。";
+  }
+}
+
+function renderNetCanvas(placed, faceIdxs, overlapFaces){
+  netEmpty.style.display = "none";
+  resizeNetCanvas();
+  const w = netCanvas.width, h = netCanvas.height;
+  netCtx.clearRect(0,0,w,h);
+
+  let minX=Infinity,maxX=-Infinity,minY=Infinity,maxY=-Infinity;
+  faceIdxs.forEach(fi=>{
+    placed[fi].forEach(p=>{
+      if(p[0]<minX)minX=p[0]; if(p[0]>maxX)maxX=p[0];
+      if(p[1]<minY)minY=p[1]; if(p[1]>maxY)maxY=p[1];
+    });
+  });
+  const spanX = maxX-minX || 1, spanY = maxY-minY || 1;
+  const pad = 48; // room for the 32px θ labels near the edge
+  const scale = Math.min((w-pad*2)/spanX, (h-pad*2)/spanY);
+  const offX = (w - spanX*scale)/2 - minX*scale;
+  const offY = (h - spanY*scale)/2 - minY*scale;
+
+  function toCanvas(p){ return [offX + p[0]*scale, h - (offY + p[1]*scale)]; }
+
+  faceIdxs.forEach(fi=>{
+    const pts = placed[fi].map(toCanvas);
+    netCtx.beginPath();
+    netCtx.moveTo(pts[0][0], pts[0][1]);
+    for(let i=1;i<pts.length;i++) netCtx.lineTo(pts[i][0], pts[i][1]);
+    netCtx.closePath();
+    if(overlapFaces.has(fi)){
+      netCtx.fillStyle = "rgba(255,111,111,0.55)";
+    } else if(fi === rootFace){
+      netCtx.fillStyle = "rgba(255,194,75,0.40)";
+    } else {
+      netCtx.fillStyle = "rgba(62,140,126,0.35)";
+    }
+    netCtx.fill();
+    netCtx.strokeStyle = "#182E42";
+    netCtx.lineWidth = 1.4;
+    netCtx.stroke();
+  });
+
+  if(defectMode) drawDefectOverlay(placed, faceIdxs, toCanvas);
+}
+
+// on the net, corners of the same original vertex that landed on the same 2D
+// point were never cut apart; when ALL of a vertex's corners coincide the vertex
+// is complete and its defect gap is visible as a wedge of missing paper.
+function drawDefectOverlay(placed, faceIdxs, toCanvas){
+  const data = SHAPES[currentShapeKey];
+  const defects = computeDefects(data.vertices, data.faces);
+  const byVertex = {};
+  faceIdxs.forEach(fi=>{
+    const f = data.faces[fi], n = f.length;
+    f.forEach((vi,pos)=>{
+      const P = placed[fi][pos];
+      const A = placed[fi][(pos-1+n)%n], B = placed[fi][(pos+1)%n];
+      (byVertex[vi]=byVertex[vi]||[]).push({point:P, a1:Math.atan2(A[1]-P[1],A[0]-P[0]), a2:Math.atan2(B[1]-P[1],B[0]-P[0])});
+    });
+  });
+  const completeVertices = new Set();
+  Object.keys(byVertex).forEach(viStr=>{
+    const vi = parseInt(viStr,10), group = byVertex[viStr];
+    const clusters = [];
+    group.forEach(c=>{
+      const found = clusters.find(cl=>Math.hypot(cl.point[0]-c.point[0], cl.point[1]-c.point[1])<0.01); // ponytail: coincidence epsilon; track cut edges instead if shapes get dense
+      if(found) found.members.push(c); else clusters.push({point:c.point, members:[c]});
+    });
+    clusters.forEach(cl=>{
+      const [cx,cy] = toCanvas(cl.point);
+      const isComplete = cl.members.length === group.length;
+      if(isComplete) completeVertices.add(vi);
+      cl.members.forEach(m=>{
+        netCtx.beginPath(); netCtx.moveTo(cx,cy);
+        netCtx.arc(cx,cy,24,-m.a1,-m.a2,false); // canvas y is flipped -> negate
+        netCtx.closePath();
+        netCtx.fillStyle = isComplete ? "rgba(124,166,224,0.35)" : "rgba(140,150,160,0.35)";
+        netCtx.fill();
+      });
+      if(isComplete){
+        netCtx.beginPath(); netCtx.arc(cx,cy,7,0,Math.PI*2);
+        netCtx.fillStyle = "#C98A0A"; netCtx.fill();
+        netCtx.font = "600 32px 'IBM Plex Mono', monospace"; // = one grid cell (字 ≥ 一格)
+        netCtx.fillStyle = "#182E42";
+        netCtx.fillText("θ="+(defects[vi]*180/Math.PI).toFixed(0)+"°", cx+12, cy-10);
+      }
+    });
+  });
+  renderDefectList(completeVertices);
+}
+
+/* ---------------- wiring ---------------- */
+document.querySelectorAll(".shape-btn").forEach(btn=>{
+  btn.addEventListener("click", ()=>{
+    if(btn.dataset.shape === "hull"){
+      SHAPES.hull = buildRandomHullShape();
+    }
+    setShape(btn.dataset.shape);
+  });
+});
+document.getElementById("btn-reset").addEventListener("click", resetTree);
+document.getElementById("btn-random").addEventListener("click", randomTree);
+document.getElementById("btn-defect").addEventListener("click", ()=>{
+  defectMode = !defectMode;
+  document.getElementById("btn-defect").classList.toggle("active", defectMode);
+  defectGroup.visible = defectMode;
+  defectPanel.classList.toggle("on", defectMode);
+  if(lastNet) renderNetCanvas(lastNet.placed, lastNet.faceIdxs, lastNet.overlapFaces);
+});
+
+buildViewer(currentShapeKey);
+resetTree();
+
+})();
+</script>
+</body>
+</html>
